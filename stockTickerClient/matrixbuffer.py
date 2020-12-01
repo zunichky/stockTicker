@@ -6,20 +6,25 @@ Matrix Buffer to compute output
 """
 
 import time
+import math
+
+import threading
+import collections
 
 class MatrixBuffer:
 
 	ALIGN_LEFT   = -1
 	ALIGN_CENTER = 0
 	ALIGN_RIGHT  = 1
-	CHAR_SPACING = 0
 
-	def __init__(self, rows, cols, font, display_wrapper):
-		self.rows = rows
-		self.cols = cols
+	def __init__(self, ledConfiguration, font, char_spacing=0):
+		self.rows = ledConfiguration.rows
+		self.cols = ledConfiguration.columns
 		self.font = font
-		self.display_wrapper = display_wrapper
-		self.matrix = [[0 for c in range(cols)] for r in range(rows)]
+		self.ledConfiguration = ledConfiguration
+		self.charSpacing = char_spacing
+		
+		self.matrix = [[0 for c in range(self.cols)] for r in range(self.rows)]
 
 	def get_rows(self):
 		return self.rows
@@ -41,19 +46,26 @@ class MatrixBuffer:
 			col = c
 			for p in list(bin(n)[2:].zfill(8)):
 				if p == '0':
-					print("row: " + str(row) + " col: " + str(col) + " color: (0, 0, 0)")
 					self.write_pixel(row, col, (0,0,0))
 				else:
-					print("row: " + str(row) + " col: " + str(col) + " color:" + str(color))
 					self.write_pixel(row, col, color)
 					
 				col = col + 1
 			row = row + 1
 
+	def write_deque_at(self, row, col, str):
+		#CHANGE ME ONCE FIXED
+		row = row + 1
+		for c in str:
+			self.write_char(row, col, c[0], c[1])
+			col = col + self.font.get_width() + self.charSpacing
+
 	def write_string_at(self, row, col, str, color):
+		#CHANGE ME ONCE FIXED
+		row = row + 1
 		for c in str:
 			self.write_char(row, col, c, color)
-			col = col + self.font.get_width() + self.CHAR_SPACING
+			col = col + self.font.get_width() + self.charSpacing
 
 	def write_string(self, str, color, align=ALIGN_LEFT):		
 		if len(str) > self.cols:
@@ -62,23 +74,61 @@ class MatrixBuffer:
 		if align == self.ALIGN_LEFT:
 			self.write_string_at(0, 1, str, color)
 		elif align == self.ALIGN_RIGHT:
-			self.write_string_at(0, self.cols - len(str) * (self.font.get_width() + self.CHAR_SPACING), str, color)
+			self.write_string_at(0, self.cols - len(str) * (self.font.get_width() + self.charSpacing), str, color)
 		elif align == self.ALIGN_CENTER:
-			self.write_string_at(0, int( (self.cols - len(str) * (self.font.get_width() + self.CHAR_SPACING)) / 2 ), str, color )
+			self.write_string_at(0, int( (self.cols - len(str) * (self.font.get_width() + self.charSpacing)) / 2 ), str, color )
 
-	def scroll_string(self, str, color, delay=0.01):
+	def scroll_string(self, inputStr, color, delay=0.01, startAtBeginning=True, blink=False):
+		if (startAtBeginning == True):
+			offsetBeginning = math.ceil(self.cols / self.font.get_width())
+			#add spaces in front of text to make sure the text is on the far right side
+			inputStr = (' ' * offsetBeginning) + inputStr
+			
+		# start scrolling
+		self.clear()
+		for st in range(len(inputStr)):
+			timeToBlink = 0
+			for offset in range(self.font.get_width() + self.charSpacing):
+				#self.clear()
+				if ( not blink or timeToBlink < 2):
+					self.write_string_at(0, -offset, inputStr[st:], color)
+					if (blink):
+						timeToBlink += 1
+				else:
+					#want to blink for 2 iterations, while keeping the txt scrolling
+					if (timeToBlink == 3):
+						timeToBlink = 0
+					else:
+						timeToBlink += 1
 
-		# first display string and pause
+				self.show()
+				time.sleep(delay)
+
 		self.clear()
 		self.show()
 
-		# start scrolling
-		for st in range(len(str)):
-			for offset in range(self.font.get_width() + self.CHAR_SPACING):
-				self.clear()
-				self.write_string_at(0, -offset, str[st:], color)
+	def scroll_stringg(self, inputStr, color, delay=0.01):
+		self.clear()
+		offsetBeginning = math.ceil(self.cols / self.font.get_width())
+		#add spaces in front of text to make sure the text is on the far right side
+		displayDeque= collections.deque(maxlen=offsetBeginning)
+		
+		for x in range(offsetBeginning):
+			displayDeque.append(' ')
+		
+		spliceCount = 0
+
+		while (True):
+			displayString = ''.join(displayDeque)
+			for offset in range(self.font.get_width() + self.charSpacing):
+				self.write_string_at(0, -offset, displayString , color)
 				self.show()
 				time.sleep(delay)
+
+			displayDeque.append(inputStr[spliceCount])
+			spliceCount = spliceCount + 1
+			if (spliceCount >= len(inputStr)):
+				spliceCount = 0
 
 		self.clear()
 		self.show()
@@ -89,5 +139,77 @@ class MatrixBuffer:
 				self.matrix[r][c] = 0
 
 	def show(self):
-		self.display_wrapper.display(self.matrix)
+		self.ledConfiguration.display(self.matrix)
 
+class InfiniteScroll:
+		def __init__(self, matrixBuffer, delay = .01):
+			self.displayText = list()
+			self._running = False
+			self.matrixBuffer = matrixBuffer
+			self.delay = delay
+			self.color = (255,0,0)
+		
+		def addText(self, text, color):
+			for x in text:
+				self.displayText.append((x, color))
+			self.displayText.append((' ', (0,0,0)))
+		
+		def start(self ):
+			self.thread = threading.Thread(target=self._infiniteRunningWithColor)
+			self._running = True
+			self.thread.start()
+
+		def stop(self):
+			self._running = False
+
+		def _infiniteRunning(self):
+			self.matrixBuffer.clear()
+			offsetBeginning = math.ceil(self.matrixBuffer.cols / self.matrixBuffer.font.get_width())
+			#add spaces in front of text to make sure the text is on the far right side
+			displayDeque= collections.deque(maxlen=offsetBeginning)
+			
+			for x in range(offsetBeginning):
+				displayDeque.append(' ')
+			
+			spliceCount = 0
+
+			while (self._running):
+				displayString = ''.join(displayDeque)
+				for offset in range(self.matrixBuffer.font.get_width() + self.matrixBuffer.charSpacing):
+					self.matrixBuffer.write_string_at(0, -offset, displayString , self.color)
+					self.matrixBuffer.show()
+					time.sleep(self.delay)
+
+				displayDeque.append(self.displayText[spliceCount])
+				spliceCount = spliceCount + 1
+				if (spliceCount >= len(self.displayText)):
+					spliceCount = 0
+
+			self.matrixBuffer.clear()
+			self.matrixBuffer.show()
+
+		def _infiniteRunningWithColor(self):
+			self.matrixBuffer.clear()
+			offsetBeginning = math.ceil(self.matrixBuffer.cols / self.matrixBuffer.font.get_width())
+			#add spaces in front of text to make sure the text is on the far right side
+			displayDeque= collections.deque(maxlen=offsetBeginning)
+			
+			for x in range(offsetBeginning):
+				displayDeque.append((' ',(0,0,0)))
+			
+			spliceCount = 0
+
+			while (self._running):
+				for offset in range(self.matrixBuffer.font.get_width() + self.matrixBuffer.charSpacing):
+					self.matrixBuffer.write_deque_at(0, -offset, displayDeque )
+					self.matrixBuffer.show()
+					time.sleep(self.delay)
+
+				#fix to add color
+				displayDeque.append(self.displayText[spliceCount])
+				spliceCount = spliceCount + 1
+				if (spliceCount >= len(self.displayText)):
+					spliceCount = 0
+
+			self.matrixBuffer.clear()
+			self.matrixBuffer.show()

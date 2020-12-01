@@ -1,22 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import board
 import neopixel
 
-# LED strip configuration:
-LED_COUNT      = 140   # Number of LED pixels.
-LED_PIN        = board.D18  # GPIO pin connected to the pixels (18 uses PWM!).
-LED_BRIGHTNESS = .6          # Set to 0 for darkest and 1 for brightest
+class LedConfiguration:
 
-# The order of the pixel colors - RGB or GRB. Some NeoPixels have red and green reversed!
-# For RGBW NeoPixels, simply change the ORDER to RGBW or GRBW.
-LED_ORDER = neopixel.GRB
-
-class NeopixelWrapper:
-
-	def __init__(self):
-		self.strip = neopixel.NeoPixel(LED_PIN, LED_COUNT, brightness=1, auto_write=False, pixel_order=LED_ORDER)
+	def __init__(self, GpioPin, Rows, Columns, LedBrightness=1, AutoWrite=False, RgbOrder=neopixel.GRB):
+		self.strip = neopixel.NeoPixel(GpioPin, Rows * Columns, brightness=LedBrightness, auto_write=AutoWrite, pixel_order=RgbOrder)
+		self.gpioPin = GpioPin
+		self.rows = Rows
+		self.columns = Columns
+		self.brightness = LedBrightness
+		self.autoWrite = AutoWrite
+		self.rgbOrder = RgbOrder
 
 	def matrix_to_array(self, matrix):
 		arr = []
@@ -27,7 +23,7 @@ class NeopixelWrapper:
 				if r % 2 == 1:
 					arr.append(matrix[r][c])
 				else:
-					arr.append(matrix[r][19-c])
+					arr.append(matrix[r][ (self.columns - 1) -c] )
 
 		return arr
 
